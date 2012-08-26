@@ -17,6 +17,11 @@ if (!defined('MEDIAWIKI')) exit(1);
  *                   forces you to quote your own command parameters. If not specified,
  *                   the only replacement values are escaped and quoted for the shell.
  * 
+ * 'strict': Whatever matching logic is being applied will be done in a case-sensitive
+ *           manner. If not specified, all string comparisons where a filter is being
+ *           evaluated are done in a case-insensitive way.
+ *
+ *
  *
  */
 
@@ -31,12 +36,7 @@ $wgExtensionCredits['UploadConvert'][] = array(
 );
 
 class extUploadConvertBase {
-	static protected $opt = array();
-	
-	static protected function getOptions()
-	{
-		return(self::$opt);
-	}
+	static protected $filters = array();
 	
 	static public function filterByExtention($matchext, $newext, $cmd, $opt=array())
 	{
@@ -62,7 +62,7 @@ class extUploadConvertBase {
 		if (strpos(php_uname('s'), 'Windows') !== false)
 			$opt[] = 'ignore_return_value';
 		
-		self::$opt[] = array(
+		self::$filters[] = array(
 			'matchType'=>'extension',
 			'extension'=>$matchext,
 			'newextension'=>$newext,
@@ -71,7 +71,7 @@ class extUploadConvertBase {
 		);
 	}
 	
-	protected function extUploadConvertExecute($file, $newext, $cmd, &$opt)
+	protected function convert($file, $newext, $cmd, $opt)
 	{
 		$pi = @pathinfo($file);
 		$newfn = $file.'.'.$newext;
@@ -90,6 +90,7 @@ class extUploadConvertBase {
 		
 		$r = 255; // return value from the command
 		exec($cmd, $discard = array(), $r); unset($discard);
+		/* yeah, you can't just replace $discard with null. */
 		if (in_array('ignore_return_value', $opt))
 			$r = 0; // fake success
 		
@@ -101,6 +102,58 @@ class extUploadConvertBase {
 		}
 		
 		return true;
+	}
+	
+	protected function matchExtensionFilter($filename, $idx)
+	{
+		$pi = pathinfo($filename);
+		if (!isset($pi['extension'])) return false;
+		
+		if (in_array('strict', self::$filters[$idx]['opt']))
+		{
+			return(strcmp($pi['extension'],
+				self::$filters[$idx]['extension'])==0);
+		}
+		else
+		{
+			return(strcasecmp($pi['extension'],
+				self::$filters[$idx]['extension'])==0);
+		}
+	}
+
+	protected function matchMimeTypeFilter($mimetype, $idx)
+	{
+		if (in_array('strict', self::$filters[$idx]['opt']))
+		{
+			return(strcmp($mimetype,self::$filters[$idx]['mime'])==0);
+		}
+		else
+		{
+			// FUTURE: Might want to also permit wildcard matching
+			return(strcasecmp($mimetype,self::$filters[$idx]['mime'])==0);
+		}
+	}
+	
+	protected function evalutateFile()
+	{
+		//TODO: determine the member field for these
+		//$fn = $this->originalFileName;
+		$fn = '';
+		//$mime = $this->uploadedFileMimeType;
+		$mime = '';
+		
+		foreach(self::$filters as $idx=>$filter)
+			switch($filter['matchType'])
+			{
+				case 'extension':
+					if($this->matchExtensionFilter($fn, $idx)) return($idx);
+					else break;
+				case 'mimetype':
+					if($this->matchMimeTypeFilter($mime, $idx)) return($idx);
+					else break;
+			}
+		
+		return false; // failed to match against any filters
 	}
 }
 
