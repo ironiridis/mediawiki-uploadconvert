@@ -35,7 +35,7 @@ $wgExtensionCredits['UploadConvert'][] = array(
         'version' => '0.0.0'
 );
 
-class extUploadConvertBase {
+class extUploadConvert {
 	static protected $filters = array();
 	
 	static public function filterByExtention($matchext, $newext, $cmd, $opt=array())
@@ -155,6 +155,14 @@ class extUploadConvertBase {
 		
 		return false; // failed to match against any filters
 	}
+	
+	static public function hook($type, $className)
+	{
+		$n = 'extUploadConvert'.$type;
+		if (class_exists($n)) $className = $n;
+	
+		return true;
+	}
 }
 
 class extUploadConvertFile extends UploadFromFile {
@@ -169,12 +177,4 @@ class extUploadConvertUrl extends UploadFromUrl {
 	/* ** TODO ** */
 }
 
-function extUploadConvertIntercept($type, $className)
-{
-	$n = 'extUploadConvert'.$type;
-	if (class_exists($n)) $className = $n;
-
-	return true;
-}
-
-$wgHooks['UploadCreateFromRequest'][]='extUploadConvertIntercept';
+$wgHooks['UploadCreateFromRequest'][]='extUploadConvert::hook';
