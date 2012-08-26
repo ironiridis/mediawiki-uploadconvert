@@ -71,10 +71,17 @@ class extUploadConvert {
 		);
 	}
 	
-	protected function convert($file, $newext, $cmd, $opt)
+	static public function convertUsingFilter($file, $idx)
 	{
+		$newext = self::$filters[$idx]['newextension'];
+		$cmd = self::$filters[$idx]['command'];
+		$opt = self::$filters[$idx]['options'];
 		$pi = @pathinfo($file);
-		$newfn = $file.'.'.$newext;
+		if ($newext != '')
+			$newfn = $file.'.'.$newext;
+		else
+			$newfn = $file;
+		
 		$cmd = str_replace('%from%', escapeshellarg($file), $cmd);
 		$cmd = str_replace('%dir%', escapeshellarg($pi['dirname']), $cmd);
 		$cmd = str_replace('%to%', escapeshellarg($newfn), $cmd);
@@ -89,7 +96,10 @@ class extUploadConvert {
 		}
 		
 		$r = 255; // return value from the command
-		exec($cmd, $discard = array(), $r); unset($discard);
+		$discard = array();
+		exec($cmd, $discard, $r);
+		file_put_contents('/tmp/convertcmdresult', serialize($discard));
+		unset($discard);
 		/* yeah, you can't just replace $discard with null. */
 		if (in_array('ignore_return_value', $opt))
 			$r = 0; // fake success
@@ -101,15 +111,16 @@ class extUploadConvert {
 			return false;
 		}
 		
+		rename($newfn, $file);
 		return true;
 	}
 	
-	protected function matchExtensionFilter($filename, $idx)
+	static protected function matchExtensionFilter($filename, $idx)
 	{
 		$pi = pathinfo($filename);
 		if (!isset($pi['extension'])) return false;
 		
-		if (in_array('strict', self::$filters[$idx]['opt']))
+		if (in_array('strict', self::$filters[$idx]['options']))
 		{
 			return(strcmp($pi['extension'],
 				self::$filters[$idx]['extension'])==0);
@@ -121,9 +132,13 @@ class extUploadConvert {
 		}
 	}
 
-	protected function matchMimeTypeFilter($mimetype, $idx)
+	static protected function matchMimeTypeFilter($mimetype, $idx)
 	{
-		if (in_array('strict', self::$filters[$idx]['opt']))
+		if (function_exists('mime_content_type') === false and
+			function_exists('finfo_file') === false)
+			throw new Exception('Neither mime_content_type() nor finfo_file() are available');
+		
+		if (in_array('strict', self::$filters[$idx]['options']))
 		{
 			return(strcmp($mimetype,self::$filters[$idx]['mime'])==0);
 		}
@@ -134,39 +149,74 @@ class extUploadConvert {
 		}
 	}
 	
-	protected function evalutateFile()
+	static public function evaluateFile($file='', $originalName='', $mime='', $size=0)
 	{
-		//TODO: determine the member field for these
-		//$fn = $this->originalFileName;
-		$fn = '';
-		//$mime = $this->uploadedFileMimeType;
-		$mime = '';
-		
 		foreach(self::$filters as $idx=>$filter)
 			switch($filter['matchType'])
 			{
 				case 'extension':
-					if($this->matchExtensionFilter($fn, $idx)) return($idx);
+					if(self::matchExtensionFilter($originalName, $idx)) return($idx);
 					else break;
 				case 'mimetype':
-					if($this->matchMimeTypeFilter($mime, $idx)) return($idx);
+					if(self::matchMimeTypeFilter($mime, $idx)) return($idx);
 					else break;
 			}
 		
 		return false; // failed to match against any filters
 	}
 	
-	static public function hook($type, $className)
+	static public function hook($type, &$className)
 	{
 		$n = 'extUploadConvert'.$type;
 		if (class_exists($n)) $className = $n;
 	
 		return true;
 	}
+	
+	static public function getMimeType($file)
+	{
+		if (function_exists('mime_content_type'))
+			return(mime_content_type($file));
+		else if (function_exists('finfo_file'))
+		{
+			$fi = finfo_open(FILEINFO_MIME);
+			if ($fi === false) return false;
+			$mime = finfo_file($fi, $file, FILEINFO_MIMETYPE);
+			finfo_close($fi);
+			return($mime);
+		}
+		else return false;
+	}
 }
 
 class extUploadConvertFile extends UploadFromFile {
-	/* ** TODO ** */
+	public function initializeFromRequest(&$request)
+	{
+		$upload = $request->getUpload('wpUploadFile');
+		if ($upload->exists())
+		{
+			// get info we know and find a matching filter
+			$f = extUploadConvert::evaluateFile(
+				$upload->getTempName(),
+				$upload->getName(),
+				extUploadConvert::getMimeType($upload->getTempName()),
+				$upload->getSize());
+			
+			// no matching filter? handle it normally.
+			if ($f === false)
+				return(parent::initializeFromRequest($request));
+			
+			// execute filter $f
+			$r = extUploadConvert::convertUsingFilter($upload->getTempName(), $f);
+			
+			// if filter failed, and it was mandatory, abort upload
+			if ($r === false and in_array('mandatory', self::$filters[$f]['options']))
+				return false;
+		}
+		
+		// this upload request didn't have any files
+		return(parent::initializeFromRequest($request));
+	}
 }
 
 class extUploadConvertStash extends UploadFromStash {
