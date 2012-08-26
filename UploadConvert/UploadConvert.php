@@ -38,6 +38,12 @@ $wgExtensionCredits['UploadConvert'][] = array(
 class extUploadConvert {
 	static protected $filters = array();
 	
+	static public function getFilter($idx)
+	{
+		if (!isset(self::$filters[$idx])) return false;
+		return(self::$filters[$idx]);
+	}
+	
 	static public function filterByExtention($matchext, $newext, $cmd, $opt=array())
 	{
 		if (!(is_string($matchext) and is_string($newext) and is_string($cmd)))
@@ -73,26 +79,21 @@ class extUploadConvert {
 	
 	static public function convertUsingFilter($file, $idx)
 	{
-		$newext = self::$filters[$idx]['newextension'];
 		$cmd = self::$filters[$idx]['command'];
 		$opt = self::$filters[$idx]['options'];
 		$pi = @pathinfo($file);
-		if ($newext != '')
-			$newfn = $file.'.'.$newext;
-		else
-			$newfn = $file;
+		$newfn = tempnam($pi['dirname'], 'eUC');
+		unlink($newfn); // tempnam generates the file, which may make some commands fail
 		
 		$cmd = str_replace('%from%', escapeshellarg($file), $cmd);
 		$cmd = str_replace('%dir%', escapeshellarg($pi['dirname']), $cmd);
 		$cmd = str_replace('%to%', escapeshellarg($newfn), $cmd);
-		$cmd = str_replace('%toext%', escapeshellarg($newext), $cmd);
 		
 		if (in_array('allow_raw_args', $opt))
 		{
 			$cmd = str_replace('%raw-from%', $file, $cmd);
 			$cmd = str_replace('%raw-dir%', $pi['dirname'], $cmd);
 			$cmd = str_replace('%raw-to%', $newfn, $cmd);
-			$cmd = str_replace('%raw-toext%', $newext, $cmd);
 		}
 		
 		$r = 255; // return value from the command
@@ -206,12 +207,21 @@ class extUploadConvertFile extends UploadFromFile {
 			if ($f === false)
 				return(parent::initializeFromRequest($request));
 			
+			$filter = extUploadConvert::getFilter($f);
+			
 			// execute filter $f
 			$r = extUploadConvert::convertUsingFilter($upload->getTempName(), $f);
 			
 			// if filter failed, and it was mandatory, abort upload
-			if ($r === false and in_array('mandatory', self::$filters[$f]['options']))
+			if ($r === false and in_array('mandatory', $filter['options']))
 				return false;
+			
+			if ($r === true) // filter succeeded
+				$this->initializePathInfo(
+					$upload->getName().'.'.$filter['newextension'],
+					$upload->getTempName(),
+					filesize($upload->getTempName()),
+					false);
 		}
 		
 		// this upload request didn't have any files
