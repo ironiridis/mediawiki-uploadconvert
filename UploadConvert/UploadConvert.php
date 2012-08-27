@@ -32,7 +32,7 @@ $wgExtensionCredits['UploadConvert'][] = array(
         'url' => 'https://github.com/ironiridis/mediawiki-uploadconvert',
         'descriptionmsg' => 'This extension (based in part on UploadPDF) will convert '.
 			'an uploaded object using an external utility.',
-        'version' => '0.0.0'
+        'version' => '0.1.1-beta'
 );
 
 class extUploadConvert {
