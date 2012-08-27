@@ -217,14 +217,22 @@ class extUploadConvertFile extends UploadFromFile {
 				return false;
 			
 			if ($r === true) // filter succeeded
+			{
+				if ($filter['newextension'] != '')
+					$newfn = $upload->getName().'.'.$filter['newextension'];
+				else
+					$newfn = $upload->getName();
+				
 				$this->initializePathInfo(
-					$upload->getName().'.'.$filter['newextension'],
+					$newfn,
 					$upload->getTempName(),
 					filesize($upload->getTempName()),
 					false);
+				
+				$request->setVal('wpDestFile', $newfn);
+			}
 		}
 		
-		// this upload request didn't have any files
 		return(parent::initializeFromRequest($request));
 	}
 }
